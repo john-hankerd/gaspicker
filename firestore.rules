@@ -1,0 +1,12 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // FuelStop has no user accounts and no client-side Firestore access at
+    // all — every read/write to stationPrices and priceReportRateLimits goes
+    // through Netlify functions using the Admin SDK, which bypasses these
+    // rules. Locking everything else down is just defense in depth.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

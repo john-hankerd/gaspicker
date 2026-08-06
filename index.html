@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>FuelStop — Find the Best Place to Buy Gas on Your Trip</title>
+<meta name="description" content="FuelStop tells you where to actually stop for gas on your drive — not just the cheapest station nearby, but the stop that saves you the most on your whole trip. Free, no login.">
+<link rel="canonical" href="https://40thfloor.com/fuelstop/">
+<meta property="og:title" content="FuelStop — Route Fuel Optimizer">
+<meta property="og:description" content="Free tool that finds the best gas stop for your actual trip, factoring in price, detour, and how far your tank will take you.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://40thfloor.com/fuelstop/">
+<link rel="stylesheet" href="css/style.css">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#d9772f">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "FuelStop",
+  "url": "https://40thfloor.com/fuelstop/",
+  "applicationCategory": "TravelApplication",
+  "operatingSystem": "Any",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "description": "Free route fuel optimizer that recommends the single best place to stop for gas on a trip based on total trip cost, not just nearby price."
+}
+</script>
+</head>
+<body>
+
+<div class="screen">
+
+  <div class="install-banner" id="installBanner" style="display:none;">
+    <strong>Install FuelStop</strong>
+    Add it to your home screen so it's one tap away on your next trip.
+    <button class="install-banner-close" id="installBannerClose">&times;</button>
+    <br>
+    <button class="install-banner-btn" id="installBannerBtn">Install</button>
+  </div>
+
+  <div class="app-header">
+    <div class="brand">
+      <div class="brand-mark">⛽</div>
+      <div class="brand-name">FuelStop</div>
+    </div>
+  </div>
+
+  <div class="app-body">
+
+    <div class="card" id="vehicleCard">
+      <div class="card-title">🚗 Your vehicle</div>
+      <div class="card-sub">Saved on this device — you won't need to enter it again.</div>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="mpg">Miles per gallon</label>
+          <input type="number" id="mpg" inputmode="decimal" placeholder="28" min="5" max="150">
+        </div>
+        <div class="field">
+          <label for="tankSize">Tank size (gal)</label>
+          <input type="number" id="tankSize" inputmode="decimal" placeholder="14" min="1" max="60">
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Current fuel level</label>
+        <div class="fuel-presets" id="fuelPresets">
+          <button type="button" class="fuel-preset-btn" data-val="0.125">E</button>
+          <button type="button" class="fuel-preset-btn" data-val="0.25">1/4</button>
+          <button type="button" class="fuel-preset-btn" data-val="0.5">1/2</button>
+          <button type="button" class="fuel-preset-btn" data-val="0.75">3/4</button>
+          <button type="button" class="fuel-preset-btn" data-val="1">Full</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="tripCard">
+      <div class="card-title">📍 Your trip</div>
+      <div class="card-sub" id="locStatus">We'll use your current location as the starting point.</div>
+
+      <div class="error-msg" id="errorMsg"></div>
+
+      <div class="field">
+        <label for="destination">Where are you headed?</label>
+        <input type="text" id="destination" placeholder="123 Main St, Lansing, MI">
+      </div>
+
+      <button type="button" class="btn btn-primary" id="findBtn">Find My Best Stop</button>
+    </div>
+
+    <div id="loadingArea"></div>
+    <div id="resultsArea"></div>
+
+    <div class="ad-slot" id="adSlot">
+      Ad space
+      <!-- AdSense (or other ad network) unit goes here once approved. -->
+    </div>
+
+    <div class="footer-note">
+      FuelStop uses fuel prices reported by drivers like you, so accuracy improves as more people use it near a station. Estimates are for planning only — always confirm price and availability before you rely on a specific stop.
+      <br><br>
+      Part of <a href="https://40thfloor.com">40th Floor</a>.
+    </div>
+
+  </div>
+</div>
+
+<script src="js/util.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
