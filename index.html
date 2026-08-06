@@ -50,29 +50,19 @@
 
     <div class="card" id="vehicleCard">
       <div class="card-title">🚗 Your vehicle</div>
-      <div class="card-sub">Saved on this device — you won't need to enter it again.</div>
+      <div class="card-sub">Tank size is saved on this device. Miles to empty changes every trip, so we'll ask fresh each time — most cars show it right on the dash.</div>
 
       <div class="field-row">
         <div class="field">
-          <label for="mpg">Miles per gallon</label>
-          <input type="number" id="mpg" inputmode="decimal" placeholder="28" min="5" max="150">
+          <label for="milesToEmpty">Miles to empty</label>
+          <input type="number" id="milesToEmpty" inputmode="numeric" placeholder="180" min="0" max="800">
         </div>
         <div class="field">
           <label for="tankSize">Tank size (gal)</label>
           <input type="number" id="tankSize" inputmode="decimal" placeholder="14" min="1" max="60">
         </div>
       </div>
-
-      <div class="field">
-        <label>Current fuel level</label>
-        <div class="fuel-presets" id="fuelPresets">
-          <button type="button" class="fuel-preset-btn" data-val="0.125">E</button>
-          <button type="button" class="fuel-preset-btn" data-val="0.25">1/4</button>
-          <button type="button" class="fuel-preset-btn" data-val="0.5">1/2</button>
-          <button type="button" class="fuel-preset-btn" data-val="0.75">3/4</button>
-          <button type="button" class="fuel-preset-btn" data-val="1">Full</button>
-        </div>
-      </div>
+      <div class="hint" style="margin-top:-8px; margin-bottom:14px;">"Miles to empty" is the range estimate your dashboard shows — not your total tank range.</div>
     </div>
 
     <div class="card" id="tripCard">
@@ -81,9 +71,10 @@
 
       <div class="error-msg" id="errorMsg"></div>
 
-      <div class="field">
+      <div class="field" style="position:relative;">
         <label for="destination">Where are you headed?</label>
-        <input type="text" id="destination" placeholder="123 Main St, Lansing, MI">
+        <input type="text" id="destination" placeholder="123 Main St, Lansing, MI" autocomplete="off">
+        <div class="autocomplete-list" id="autocompleteList"></div>
       </div>
 
       <button type="button" class="btn btn-primary" id="findBtn">Find My Best Stop</button>

@@ -172,20 +172,32 @@ button, input, textarea, select {
 
 .btn-sm { padding: 9px 16px; font-size: 13px; width: auto; }
 
-/* Fuel level slider presets */
-.fuel-presets { display: flex; gap: 8px; }
-.fuel-preset-btn {
-  flex: 1;
-  padding: 10px 4px;
+/* Destination autocomplete */
+.autocomplete-list {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--card);
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  border: 1.5px solid var(--border);
-  background: var(--bg);
-  color: var(--ink-soft);
-  font-weight: 700;
-  font-size: 13px;
-  cursor: pointer;
+  margin-top: 4px;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+  z-index: 30;
+  overflow: hidden;
 }
-.fuel-preset-btn.active { border-color: var(--accent); background: var(--accent-light); color: var(--accent-dark); }
+.autocomplete-list.visible { display: block; }
+.autocomplete-item {
+  padding: 11px 14px;
+  font-size: 13.5px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+}
+.autocomplete-item:last-child { border-bottom: none; }
+.autocomplete-item:hover, .autocomplete-item.highlighted { background: var(--accent-light); color: var(--accent-dark); }
+.autocomplete-item-main { font-weight: 600; }
+.autocomplete-item-sub { font-size: 11.5px; color: var(--ink-faint); margin-top: 1px; }
 
 .error-msg {
   background: var(--danger-light);

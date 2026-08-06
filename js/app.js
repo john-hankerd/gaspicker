@@ -1,17 +1,20 @@
-const RESERVE_FRACTION = 0.10;   // never plan to run below this fraction of the tank
-const FILL_TARGET_FRACTION = 0.90; // plan to fill back up to this fraction, not a precise 100%
+const RESERVE_FRACTION = 0.15;   // keep this fraction of the dashboard's "miles to empty" as a cushion
+const FILL_TARGET_FRACTION = 0.90; // assumed fill size when estimating cost: most of the tank, not a precise top-off
 const METERS_PER_MILE = 1609.34;
-const EMERGENCY_SEARCH_MILES = 10; // floor search radius when already below reserve
+const CRITICAL_LOW_MILES = 20; // below this, treat as urgent and ignore the reserve cushion
 
 let vehicle = loadVehicleProfile();
-let lastRouteResult = null;
+let knownLocation = null; // filled in lazily to bias destination suggestions
+let autocompleteSessionToken = null;
+let autocompleteAbortController = null;
+let autocompleteDebounceTimer = null;
 
 function loadVehicleProfile() {
   try {
     const raw = localStorage.getItem('fs_vehicle');
     if (raw) return JSON.parse(raw);
   } catch (e) {}
-  return { mpg: null, tankSize: null, fuelLevel: 0.5 };
+  return { tankSize: null };
 }
 
 function saveVehicleProfile() {
@@ -19,35 +22,92 @@ function saveVehicleProfile() {
 }
 
 function initVehicleForm() {
-  const mpgInput = document.getElementById('mpg');
   const tankInput = document.getElementById('tankSize');
-  if (vehicle.mpg) mpgInput.value = vehicle.mpg;
   if (vehicle.tankSize) tankInput.value = vehicle.tankSize;
 
-  mpgInput.addEventListener('change', () => {
-    vehicle.mpg = parseFloat(mpgInput.value) || null;
-    saveVehicleProfile();
-  });
   tankInput.addEventListener('change', () => {
     vehicle.tankSize = parseFloat(tankInput.value) || null;
     saveVehicleProfile();
   });
 
-  const presetBtns = document.querySelectorAll('.fuel-preset-btn');
-  presetBtns.forEach((btn) => {
-    const val = parseFloat(btn.dataset.val);
-    if (Math.abs(val - (vehicle.fuelLevel ?? 0.5)) < 0.01) btn.classList.add('active');
-    btn.addEventListener('click', () => {
-      presetBtns.forEach((b) => b.classList.remove('active'));
-      btn.classList.add('active');
-      vehicle.fuelLevel = val;
-      saveVehicleProfile();
-    });
-  });
-
   const destInput = document.getElementById('destination');
   const savedDest = localStorage.getItem('fs_last_destination');
   if (savedDest) destInput.value = savedDest;
+
+  initDestinationAutocomplete();
+
+  // Quietly try to get location up front (non-blocking) so autocomplete can
+  // bias suggestions toward nearby places. If denied, autocomplete still
+  // works, just without the bias, and the real GPS fetch on submit still runs.
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => { knownLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude }; },
+      () => {},
+      { maximumAge: 300000, timeout: 5000 }
+    );
+  }
+}
+
+function newSessionToken() {
+  return (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2));
+}
+
+function initDestinationAutocomplete() {
+  const destInput = document.getElementById('destination');
+  const list = document.getElementById('autocompleteList');
+
+  function hideList() {
+    list.classList.remove('visible');
+    list.innerHTML = '';
+  }
+
+  function renderSuggestions(suggestions) {
+    if (!suggestions.length) { hideList(); return; }
+    list.innerHTML = suggestions.map((s, i) => `
+      <div class="autocomplete-item" data-index="${i}">
+        <div class="autocomplete-item-main">${escapeHtml(s.mainText)}</div>
+        ${s.secondaryText ? `<div class="autocomplete-item-sub">${escapeHtml(s.secondaryText)}</div>` : ''}
+      </div>
+    `).join('');
+    list.querySelectorAll('.autocomplete-item').forEach((el, i) => {
+      el.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        destInput.value = suggestions[i].text;
+        localStorage.setItem('fs_last_destination', suggestions[i].text);
+        hideList();
+        autocompleteSessionToken = null; // selection made — next query starts a fresh session
+      });
+    });
+    list.classList.add('visible');
+  }
+
+  destInput.addEventListener('input', () => {
+    const value = destInput.value.trim();
+    clearTimeout(autocompleteDebounceTimer);
+    if (value.length < 3) { hideList(); return; }
+    if (!autocompleteSessionToken) autocompleteSessionToken = newSessionToken();
+
+    autocompleteDebounceTimer = setTimeout(async () => {
+      if (autocompleteAbortController) autocompleteAbortController.abort();
+      autocompleteAbortController = new AbortController();
+      try {
+        const res = await fetch('/.netlify/functions/autocomplete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            input: value,
+            sessionToken: autocompleteSessionToken,
+            origin: knownLocation || undefined,
+          }),
+          signal: autocompleteAbortController.signal,
+        });
+        const data = await res.json();
+        if (destInput.value.trim() === value) renderSuggestions(data.suggestions || []);
+      } catch (e) {}
+    }, 250);
+  });
+
+  destInput.addEventListener('blur', () => setTimeout(hideList, 150));
 }
 
 function showError(msg) {
@@ -101,16 +161,20 @@ async function handleFindStop() {
   clearError();
   document.getElementById('resultsArea').innerHTML = '';
 
-  const mpgInput = document.getElementById('mpg');
+  const milesToEmptyInput = document.getElementById('milesToEmpty');
   const tankInput = document.getElementById('tankSize');
   const destInput = document.getElementById('destination');
 
-  vehicle.mpg = parseFloat(mpgInput.value) || null;
+  const milesToEmpty = parseFloat(milesToEmptyInput.value) || null;
   vehicle.tankSize = parseFloat(tankInput.value) || null;
   saveVehicleProfile();
 
-  if (!vehicle.mpg || !vehicle.tankSize) {
-    showError('Enter your vehicle’s MPG and tank size first.');
+  if (!milesToEmpty) {
+    showError('Enter your miles-to-empty from your dashboard.');
+    return;
+  }
+  if (!vehicle.tankSize) {
+    showError('Enter your tank size.');
     return;
   }
   if (!destInput.value.trim()) {
@@ -132,22 +196,20 @@ async function handleFindStop() {
       destination: destInput.value.trim(),
     });
 
-    const fuelLevel = vehicle.fuelLevel ?? 0.5;
-    const usableGallons = Math.max(0, fuelLevel * vehicle.tankSize - vehicle.tankSize * RESERVE_FRACTION);
-    const comfortableMaxRangeMeters = usableGallons * vehicle.mpg * METERS_PER_MILE;
-    const absoluteMaxRangeMeters = fuelLevel * vehicle.tankSize * vehicle.mpg * METERS_PER_MILE;
-    const isCriticallyLow = comfortableMaxRangeMeters <= 0;
+    const isCriticallyLow = milesToEmpty <= CRITICAL_LOW_MILES;
+    const comfortableMaxRangeMeters = milesToEmpty * (1 - RESERVE_FRACTION) * METERS_PER_MILE;
+    const absoluteMaxRangeMeters = milesToEmpty * METERS_PER_MILE;
 
     if (!isCriticallyLow && comfortableMaxRangeMeters >= route.distanceMeters) {
-      const gallonsAtArrival = usableGallons - (route.distanceMeters / METERS_PER_MILE) / vehicle.mpg;
-      renderNoStopNeeded(gallonsAtArrival);
+      const cushionMiles = milesToEmpty - milesFromMeters(route.distanceMeters);
+      renderNoStopNeeded(cushionMiles);
       setLoading('');
       findBtn.disabled = false;
       return;
     }
 
     const searchUpperBoundMeters = isCriticallyLow
-      ? Math.min(absoluteMaxRangeMeters, EMERGENCY_SEARCH_MILES * METERS_PER_MILE, route.distanceMeters)
+      ? Math.min(absoluteMaxRangeMeters, route.distanceMeters)
       : Math.min(comfortableMaxRangeMeters, route.distanceMeters);
 
     const reachableSamples = route.samples.filter((s) => s.distanceMeters <= searchUpperBoundMeters);
@@ -172,16 +234,20 @@ async function handleFindStop() {
     const priceByPlaceId = {};
     (pricesRes.prices || []).forEach((p) => { priceByPlaceId[p.placeId] = p; });
 
+    // Without a tracked fuel level or MPG, we assume a road-trip fuel stop is
+    // close to a full fill regardless of which station is chosen — a
+    // reasonable default since the point of stopping is to top off. This
+    // keeps gallonsNeeded constant across candidates so price + detour are
+    // what actually drive the ranking.
+    const gallonsNeeded = vehicle.tankSize * FILL_TARGET_FRACTION;
+
     const candidates = stationsRes.stations
       .map((s) => {
         const priceInfo = priceByPlaceId[s.placeId];
         if (!priceInfo) return null;
-        const milesToStation = milesFromMeters(s.distanceMeters);
-        const gallonsUsedToReach = milesToStation / vehicle.mpg;
-        const gallonsRemainingAtStation = Math.max(0, fuelLevel * vehicle.tankSize - gallonsUsedToReach);
-        const gallonsNeeded = Math.max(0, vehicle.tankSize * FILL_TARGET_FRACTION - gallonsRemainingAtStation);
         const detourMiles = (s.detourMeters ? milesFromMeters(s.detourMeters) : 0.6) * 2; // round trip off the route
-        const detourCost = (detourMiles / vehicle.mpg) * priceInfo.price;
+        const assumedMpg = 25; // only used to price the small detour itself, not the fill-up
+        const detourCost = (detourMiles / assumedMpg) * priceInfo.price;
         const totalCost = gallonsNeeded * priceInfo.price + detourCost;
         return { ...s, ...priceInfo, gallonsNeeded, totalCost, durationSeconds: s.durationSeconds };
       })
@@ -212,12 +278,12 @@ async function handleFindStop() {
   findBtn.disabled = false;
 }
 
-function renderNoStopNeeded(gallonsAtArrival) {
+function renderNoStopNeeded(cushionMiles) {
   const area = document.getElementById('resultsArea');
   area.innerHTML = `
     <div class="card notice notice-success" style="margin-bottom:16px;">
-      <strong>You've got enough fuel to make it.</strong><br>
-      You should arrive with roughly ${Math.max(0, gallonsAtArrival).toFixed(1)} gallons left — no stop needed for this trip.
+      <strong>You've got enough range to make it.</strong><br>
+      You should arrive with roughly ${Math.max(0, Math.round(cushionMiles))} miles of range left — no stop needed for this trip.
     </div>
   `;
 }
