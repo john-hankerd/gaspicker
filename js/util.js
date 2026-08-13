@@ -17,7 +17,7 @@ function setupInstallBanner() {
   const closeBtn = document.getElementById('installBannerClose');
   if (!banner || !btn || !closeBtn) return;
 
-  if (localStorage.getItem('fs_install_dismissed') === '1') return;
+  if (localStorage.getItem('gp_install_dismissed') === '1') return;
 
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
@@ -36,7 +36,7 @@ function setupInstallBanner() {
 
   closeBtn.addEventListener('click', () => {
     banner.style.display = 'none';
-    localStorage.setItem('fs_install_dismissed', '1');
+    localStorage.setItem('gp_install_dismissed', '1');
   });
 }
 

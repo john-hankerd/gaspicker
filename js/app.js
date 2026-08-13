@@ -11,14 +11,14 @@ let autocompleteDebounceTimer = null;
 
 function loadVehicleProfile() {
   try {
-    const raw = localStorage.getItem('fs_vehicle');
+    const raw = localStorage.getItem('gp_vehicle');
     if (raw) return JSON.parse(raw);
   } catch (e) {}
   return { tankSize: null };
 }
 
 function saveVehicleProfile() {
-  localStorage.setItem('fs_vehicle', JSON.stringify(vehicle));
+  localStorage.setItem('gp_vehicle', JSON.stringify(vehicle));
 }
 
 function initVehicleForm() {
@@ -31,7 +31,7 @@ function initVehicleForm() {
   });
 
   const destInput = document.getElementById('destination');
-  const savedDest = localStorage.getItem('fs_last_destination');
+  const savedDest = localStorage.getItem('gp_last_destination');
   if (savedDest) destInput.value = savedDest;
 
   initDestinationAutocomplete();
@@ -73,7 +73,7 @@ function initDestinationAutocomplete() {
       el.addEventListener('mousedown', (e) => {
         e.preventDefault();
         destInput.value = suggestions[i].text;
-        localStorage.setItem('fs_last_destination', suggestions[i].text);
+        localStorage.setItem('gp_last_destination', suggestions[i].text);
         hideList();
         autocompleteSessionToken = null; // selection made — next query starts a fresh session
       });
@@ -130,7 +130,7 @@ function getLocation() {
       (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
       (err) => {
         if (err.code === err.PERMISSION_DENIED) {
-          reject(new Error('Location access was denied. Allow location for FuelStop in your browser settings, then try again.'));
+          reject(new Error('Location access was denied. Allow location for GasPicker in your browser settings, then try again.'));
         } else {
           reject(new Error('Couldn’t get your current location. Try again in a moment.'));
         }
@@ -181,7 +181,7 @@ async function handleFindStop() {
     showError('Enter where you’re headed.');
     return;
   }
-  localStorage.setItem('fs_last_destination', destInput.value.trim());
+  localStorage.setItem('gp_last_destination', destInput.value.trim());
 
   const findBtn = document.getElementById('findBtn');
   findBtn.disabled = true;

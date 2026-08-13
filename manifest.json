@@ -1,6 +1,6 @@
 {
-  "name": "FuelStop — Route Fuel Optimizer",
-  "short_name": "FuelStop",
+  "name": "GasPicker — Route Fuel Optimizer",
+  "short_name": "GasPicker",
   "description": "Tells you the single best place to stop for gas on your trip, based on total trip cost, not just the cheapest price nearby.",
   "start_url": "index.html",
   "scope": "./",

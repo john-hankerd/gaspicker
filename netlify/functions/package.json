@@ -1,7 +1,7 @@
 {
-  "name": "fuelstop-functions",
+  "name": "gaspicker-functions",
   "version": "1.0.0",
-  "description": "Netlify serverless functions for FuelStop",
+  "description": "Netlify serverless functions for GasPicker",
   "dependencies": {
     "firebase-admin": "^12.7.0"
   }
