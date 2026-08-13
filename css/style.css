@@ -308,20 +308,6 @@ button, input, textarea, select {
 .result-actions { display: flex; gap: 10px; }
 .result-actions .btn { flex: 1; }
 
-.alt-list { margin-top: 4px; }
-.alt-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--border);
-  font-size: 13.5px;
-}
-.alt-item:last-child { border-bottom: none; }
-.alt-item-name { font-weight: 600; }
-.alt-item-sub { font-size: 11.5px; color: var(--ink-faint); }
-.alt-item-price { font-weight: 700; }
-
 /* Report price mini-form */
 .report-toggle {
   text-align: center;

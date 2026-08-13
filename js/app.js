@@ -1,35 +1,14 @@
 const RESERVE_FRACTION = 0.15;   // keep this fraction of the dashboard's "miles to empty" as a cushion
-const FILL_TARGET_FRACTION = 0.90; // assumed fill size when estimating cost: most of the tank, not a precise top-off
 const METERS_PER_MILE = 1609.34;
 const CRITICAL_LOW_MILES = 20; // below this, treat as urgent and ignore the reserve cushion
+const RESULTS_COUNT = 3; // show this many lowest-price reachable options, not just one
 
-let vehicle = loadVehicleProfile();
 let knownLocation = null; // filled in lazily to bias destination suggestions
 let autocompleteSessionToken = null;
 let autocompleteAbortController = null;
 let autocompleteDebounceTimer = null;
 
-function loadVehicleProfile() {
-  try {
-    const raw = localStorage.getItem('gp_vehicle');
-    if (raw) return JSON.parse(raw);
-  } catch (e) {}
-  return { tankSize: null };
-}
-
-function saveVehicleProfile() {
-  localStorage.setItem('gp_vehicle', JSON.stringify(vehicle));
-}
-
 function initVehicleForm() {
-  const tankInput = document.getElementById('tankSize');
-  if (vehicle.tankSize) tankInput.value = vehicle.tankSize;
-
-  tankInput.addEventListener('change', () => {
-    vehicle.tankSize = parseFloat(tankInput.value) || null;
-    saveVehicleProfile();
-  });
-
   const destInput = document.getElementById('destination');
   const savedDest = localStorage.getItem('gp_last_destination');
   if (savedDest) destInput.value = savedDest;
@@ -162,19 +141,12 @@ async function handleFindStop() {
   document.getElementById('resultsArea').innerHTML = '';
 
   const milesToEmptyInput = document.getElementById('milesToEmpty');
-  const tankInput = document.getElementById('tankSize');
   const destInput = document.getElementById('destination');
 
   const milesToEmpty = parseFloat(milesToEmptyInput.value) || null;
-  vehicle.tankSize = parseFloat(tankInput.value) || null;
-  saveVehicleProfile();
 
   if (!milesToEmpty) {
     showError('Enter your miles-to-empty from your dashboard.');
-    return;
-  }
-  if (!vehicle.tankSize) {
-    showError('Enter your tank size.');
     return;
   }
   if (!destInput.value.trim()) {
@@ -234,25 +206,20 @@ async function handleFindStop() {
     const priceByPlaceId = {};
     (pricesRes.prices || []).forEach((p) => { priceByPlaceId[p.placeId] = p; });
 
-    // Without a tracked fuel level or MPG, we assume a road-trip fuel stop is
-    // close to a full fill regardless of which station is chosen — a
-    // reasonable default since the point of stopping is to top off. This
-    // keeps gallonsNeeded constant across candidates so price + detour are
-    // what actually drive the ranking.
-    const gallonsNeeded = vehicle.tankSize * FILL_TARGET_FRACTION;
-
+    // Stations are already limited to a small detour from the route (the
+    // backend only searches near sampled route points), so among reachable
+    // stations we just rank by price — letting the driver weigh brand or
+    // store preference themselves across the cheapest few, rather than
+    // silently picking one "best" stop for them.
     const candidates = stationsRes.stations
       .map((s) => {
         const priceInfo = priceByPlaceId[s.placeId];
         if (!priceInfo) return null;
-        const detourMiles = (s.detourMeters ? milesFromMeters(s.detourMeters) : 0.6) * 2; // round trip off the route
-        const assumedMpg = 25; // only used to price the small detour itself, not the fill-up
-        const detourCost = (detourMiles / assumedMpg) * priceInfo.price;
-        const totalCost = gallonsNeeded * priceInfo.price + detourCost;
-        return { ...s, ...priceInfo, gallonsNeeded, totalCost, durationSeconds: s.durationSeconds };
+        const detourMiles = s.detourMeters ? milesFromMeters(s.detourMeters) : 0.6;
+        return { ...s, ...priceInfo, detourMiles };
       })
       .filter(Boolean)
-      .sort((a, b) => a.totalCost - b.totalCost);
+      .sort((a, b) => a.price - b.price);
 
     setLoading('');
 
@@ -262,14 +229,7 @@ async function handleFindStop() {
       return;
     }
 
-    const best = candidates[0];
-    const others = candidates.slice(1, 4);
-    const avgOthersPrice = others.length
-      ? others.reduce((sum, c) => sum + c.price, 0) / others.length
-      : best.price;
-    const savings = Math.max(0, (avgOthersPrice - best.price) * best.gallonsNeeded);
-
-    renderResult(best, others, savings, isCriticallyLow);
+    renderResults(candidates.slice(0, RESULTS_COUNT), isCriticallyLow);
   } catch (err) {
     setLoading('');
     showError(err.message || 'Something went wrong. Please try again.');
@@ -303,66 +263,55 @@ function confidenceInfo(confidence) {
   return { cls: 'confidence-low', label: '≈ Estimated — no recent driver reports' };
 }
 
-function renderResult(best, others, savings, isCriticallyLow) {
-  const conf = confidenceInfo(best.confidence);
-  const area = document.getElementById('resultsArea');
-  const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${best.lat},${best.lng}&query_place_id=${encodeURIComponent(best.placeId)}`;
+const RANK_LABELS = ['#1 · Cheapest reachable', '#2 · Next cheapest', '#3 · Next cheapest'];
 
-  const altHtml = others.length
-    ? `<div class="card" id="altCard" style="display:none;">
-         <div class="card-title" style="font-size:14px;">Other reachable stops</div>
-         <div class="alt-list">
-           ${others.map((o) => `
-             <div class="alt-item">
-               <div>
-                 <div class="alt-item-name">${escapeHtml(o.name)}</div>
-                 <div class="alt-item-sub">${escapeHtml(o.address || '')}</div>
-               </div>
-               <div class="alt-item-price">${formatMoney(o.price)}/gal</div>
-             </div>
-           `).join('')}
-         </div>
-       </div>
-       <div class="report-toggle" id="showAltToggle">See other reachable stops</div>`
-    : '';
+function renderResults(candidates, isCriticallyLow) {
+  const area = document.getElementById('resultsArea');
+
+  const cardsHtml = candidates.map((c, i) => {
+    const conf = confidenceInfo(c.confidence);
+    const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${c.lat},${c.lng}&query_place_id=${encodeURIComponent(c.placeId)}`;
+    return `
+      <div class="result-card" data-index="${i}">
+        <div class="result-eyebrow">${RANK_LABELS[i] || `#${i + 1}`}</div>
+        <div class="result-station">${escapeHtml(c.name)}</div>
+        <div class="result-address">${escapeHtml(c.address || '')}</div>
+
+        <div class="confidence-tag ${conf.cls}">${conf.label}</div>
+
+        <div class="result-stats">
+          <div class="result-stat-box">
+            <div class="result-stat-label">Price</div>
+            <div class="result-stat-value">${formatMoney(c.price)}/gal</div>
+          </div>
+          <div class="result-stat-box">
+            <div class="result-stat-label">Off your route</div>
+            <div class="result-stat-value">${c.detourMiles < 0.15 ? 'Right on it' : `~${c.detourMiles.toFixed(1)} mi`}</div>
+          </div>
+        </div>
+
+        <div class="result-stat-box" style="margin-bottom:16px;">
+          <div class="result-stat-label">Time to stop</div>
+          <div class="result-stat-value">${formatTimeFromNow(c.durationSeconds)}</div>
+        </div>
+
+        <div class="result-actions">
+          <a class="btn btn-primary" href="${mapsUrl}" target="_blank" rel="noopener">Get Directions</a>
+        </div>
+
+        <div class="report-toggle" data-report-toggle="${i}">Price wrong? Report what you actually paid</div>
+        <div class="report-form" data-report-form="${i}">
+          <input type="number" data-report-price="${i}" inputmode="decimal" placeholder="3.29" step="0.01" min="1" max="9">
+          <button class="btn btn-primary btn-sm" data-report-submit="${i}">Submit</button>
+        </div>
+      </div>
+    `;
+  }).join('');
 
   area.innerHTML = `
-    ${isCriticallyLow ? '<div class="notice">You’re low on fuel — this is the closest reachable stop, not necessarily the cheapest.</div>' : ''}
-    <div class="result-card">
-      <div class="result-eyebrow">Best stop for this trip</div>
-      <div class="result-station">${escapeHtml(best.name)}</div>
-      <div class="result-address">${escapeHtml(best.address || '')}</div>
-
-      <div class="confidence-tag ${conf.cls}">${conf.label}</div>
-
-      <div class="result-stats">
-        <div class="result-stat-box">
-          <div class="result-stat-label">Price</div>
-          <div class="result-stat-value">${formatMoney(best.price)}/gal</div>
-        </div>
-        <div class="result-stat-box">
-          <div class="result-stat-label">Est. savings</div>
-          <div class="result-stat-value savings">${savings > 0.01 ? formatMoney(savings) : '—'}</div>
-        </div>
-      </div>
-
-      <div class="result-stat-box" style="margin-bottom:16px;">
-        <div class="result-stat-label">Time to stop</div>
-        <div class="result-stat-value">${formatTimeFromNow(best.durationSeconds)}</div>
-      </div>
-
-      <div class="result-actions">
-        <a class="btn btn-primary" href="${mapsUrl}" target="_blank" rel="noopener">Get Directions</a>
-        <button class="btn btn-outline" id="findAgainBtn">Search Again</button>
-      </div>
-
-      <div class="report-toggle" id="showReportToggle">Price wrong? Report what you actually paid</div>
-      <div class="report-form" id="reportForm">
-        <input type="number" id="reportPrice" inputmode="decimal" placeholder="3.29" step="0.01" min="1" max="9">
-        <button class="btn btn-primary btn-sm" id="submitReportBtn">Submit</button>
-      </div>
-    </div>
-    ${altHtml}
+    ${isCriticallyLow ? '<div class="notice">You’re low on fuel — these are your closest reachable options, not necessarily the cheapest anywhere.</div>' : ''}
+    ${cardsHtml}
+    <button type="button" class="btn btn-outline" id="findAgainBtn" style="margin-bottom:16px;">Search Again</button>
   `;
 
   document.getElementById('findAgainBtn').addEventListener('click', () => {
@@ -370,32 +319,26 @@ function renderResult(best, others, savings, isCriticallyLow) {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   });
 
-  const showAltToggle = document.getElementById('showAltToggle');
-  if (showAltToggle) {
-    showAltToggle.addEventListener('click', () => {
-      const altCard = document.getElementById('altCard');
-      altCard.style.display = altCard.style.display === 'none' ? 'block' : 'none';
+  candidates.forEach((c, i) => {
+    const toggle = area.querySelector(`[data-report-toggle="${i}"]`);
+    const form = area.querySelector(`[data-report-form="${i}"]`);
+    toggle.addEventListener('click', () => form.classList.toggle('visible'));
+
+    area.querySelector(`[data-report-submit="${i}"]`).addEventListener('click', async () => {
+      const priceInput = area.querySelector(`[data-report-price="${i}"]`);
+      const price = parseFloat(priceInput.value);
+      if (!price || price < 1 || price > 9) return;
+      try {
+        await postJson('/.netlify/functions/submit-price', {
+          placeId: c.placeId,
+          name: c.name,
+          lat: c.lat,
+          lng: c.lng,
+          price,
+        });
+        form.innerHTML = '<div style="font-size:13px; color: var(--success);">Thanks — that helps other drivers.</div>';
+      } catch (e) {}
     });
-  }
-
-  document.getElementById('showReportToggle').addEventListener('click', () => {
-    document.getElementById('reportForm').classList.toggle('visible');
-  });
-
-  document.getElementById('submitReportBtn').addEventListener('click', async () => {
-    const priceInput = document.getElementById('reportPrice');
-    const price = parseFloat(priceInput.value);
-    if (!price || price < 1 || price > 9) return;
-    try {
-      await postJson('/.netlify/functions/submit-price', {
-        placeId: best.placeId,
-        name: best.name,
-        lat: best.lat,
-        lng: best.lng,
-        price,
-      });
-      document.getElementById('reportForm').innerHTML = '<div style="font-size:13px; color: var(--success);">Thanks — that helps other drivers.</div>';
-    } catch (e) {}
   });
 }
 

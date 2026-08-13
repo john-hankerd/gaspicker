@@ -1,7 +1,7 @@
 {
   "name": "GasPicker — Route Fuel Optimizer",
   "short_name": "GasPicker",
-  "description": "Tells you the single best place to stop for gas on your trip, based on total trip cost, not just the cheapest price nearby.",
+  "description": "Shows you the 3 cheapest gas stations you can actually reach on your trip, not just the cheapest station nearby.",
   "start_url": "index.html",
   "scope": "./",
   "display": "standalone",
