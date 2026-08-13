@@ -13,6 +13,18 @@ function initVehicleForm() {
   const savedDest = localStorage.getItem('gp_last_destination');
   if (savedDest) destInput.value = savedDest;
 
+  const milesToEmptyInput = document.getElementById('milesToEmpty');
+  const wholeRouteToggle = document.getElementById('wholeRouteToggle');
+  const hint = document.getElementById('milesToEmptyHint');
+  wholeRouteToggle.addEventListener('change', () => {
+    const checked = wholeRouteToggle.checked;
+    milesToEmptyInput.disabled = checked;
+    if (checked) milesToEmptyInput.value = '';
+    hint.textContent = checked
+      ? 'We’ll check gas stations along your entire route, not just what you can currently reach.'
+      : 'This is the range estimate your dashboard shows — not your total tank range.';
+  });
+
   initDestinationAutocomplete();
 
   // Quietly try to get location up front (non-blocking) so autocomplete can
@@ -141,12 +153,13 @@ async function handleFindStop() {
   document.getElementById('resultsArea').innerHTML = '';
 
   const milesToEmptyInput = document.getElementById('milesToEmpty');
+  const wholeRoute = document.getElementById('wholeRouteToggle').checked;
   const destInput = document.getElementById('destination');
 
-  const milesToEmpty = parseFloat(milesToEmptyInput.value) || null;
+  const milesToEmpty = wholeRoute ? null : (parseFloat(milesToEmptyInput.value) || null);
 
-  if (!milesToEmpty) {
-    showError('Enter your miles-to-empty from your dashboard.');
+  if (!wholeRoute && !milesToEmpty) {
+    showError('Enter your miles-to-empty from your dashboard, or check "Check the whole route instead."');
     return;
   }
   if (!destInput.value.trim()) {
@@ -168,24 +181,31 @@ async function handleFindStop() {
       destination: destInput.value.trim(),
     });
 
-    const isCriticallyLow = milesToEmpty <= CRITICAL_LOW_MILES;
-    const comfortableMaxRangeMeters = milesToEmpty * (1 - RESERVE_FRACTION) * METERS_PER_MILE;
-    const absoluteMaxRangeMeters = milesToEmpty * METERS_PER_MILE;
+    let isCriticallyLow = false;
+    let reachableSamples;
 
-    if (!isCriticallyLow && comfortableMaxRangeMeters >= route.distanceMeters) {
-      const cushionMiles = milesToEmpty - milesFromMeters(route.distanceMeters);
-      renderNoStopNeeded(cushionMiles);
-      setLoading('');
-      findBtn.disabled = false;
-      return;
+    if (wholeRoute) {
+      reachableSamples = route.samples;
+    } else {
+      isCriticallyLow = milesToEmpty <= CRITICAL_LOW_MILES;
+      const comfortableMaxRangeMeters = milesToEmpty * (1 - RESERVE_FRACTION) * METERS_PER_MILE;
+      const absoluteMaxRangeMeters = milesToEmpty * METERS_PER_MILE;
+
+      if (!isCriticallyLow && comfortableMaxRangeMeters >= route.distanceMeters) {
+        const cushionMiles = milesToEmpty - milesFromMeters(route.distanceMeters);
+        renderNoStopNeeded(cushionMiles);
+        setLoading('');
+        findBtn.disabled = false;
+        return;
+      }
+
+      const searchUpperBoundMeters = isCriticallyLow
+        ? Math.min(absoluteMaxRangeMeters, route.distanceMeters)
+        : Math.min(comfortableMaxRangeMeters, route.distanceMeters);
+
+      reachableSamples = route.samples.filter((s) => s.distanceMeters <= searchUpperBoundMeters);
+      if (reachableSamples.length === 0) reachableSamples.push(route.samples[0]);
     }
-
-    const searchUpperBoundMeters = isCriticallyLow
-      ? Math.min(absoluteMaxRangeMeters, route.distanceMeters)
-      : Math.min(comfortableMaxRangeMeters, route.distanceMeters);
-
-    const reachableSamples = route.samples.filter((s) => s.distanceMeters <= searchUpperBoundMeters);
-    if (reachableSamples.length === 0) reachableSamples.push(route.samples[0]);
 
     setLoading('Finding gas stations along your route...');
     const stationsRes = await postJson('/.netlify/functions/find-stations', {
