@@ -2,6 +2,7 @@ const RESERVE_FRACTION = 0.15;   // keep this fraction of the dashboard's "miles
 const METERS_PER_MILE = 1609.34;
 const CRITICAL_LOW_MILES = 20; // below this, treat as urgent and ignore the reserve cushion
 const RESULTS_COUNT = 3; // show this many lowest-price reachable options, not just one
+const CONFIDENCE_RANK = { google: 0, high: 1, medium: 2, low: 3 }; // trust order for ranking, not just price
 
 let knownLocation = null; // filled in lazily to bias destination suggestions
 let autocompleteSessionToken = null;
@@ -219,12 +220,19 @@ async function handleFindStop() {
       return;
     }
 
-    setLoading('Checking fuel prices...');
-    const pricesRes = await postJson('/.netlify/functions/get-prices', {
-      stations: stationsRes.stations.map((s) => ({ placeId: s.placeId, lat: s.lat, lng: s.lng })),
-    });
-    const priceByPlaceId = {};
-    (pricesRes.prices || []).forEach((p) => { priceByPlaceId[p.placeId] = p; });
+    // Google returns a real, regularly-updated price for most stations
+    // directly in find-stations (fuelOptions) — only fall back to our
+    // crowd-sourced/estimated lookup for the stations Google doesn't have
+    // data for.
+    const needsFallbackPrice = stationsRes.stations.filter((s) => s.livePrice == null);
+    let fallbackPriceByPlaceId = {};
+    if (needsFallbackPrice.length > 0) {
+      setLoading('Checking fuel prices...');
+      const pricesRes = await postJson('/.netlify/functions/get-prices', {
+        stations: needsFallbackPrice.map((s) => ({ placeId: s.placeId, lat: s.lat, lng: s.lng })),
+      });
+      (pricesRes.prices || []).forEach((p) => { fallbackPriceByPlaceId[p.placeId] = p; });
+    }
 
     // Stations are already limited to a small detour from the route (the
     // backend only searches near sampled route points), so among reachable
@@ -233,13 +241,18 @@ async function handleFindStop() {
     // silently picking one "best" stop for them.
     const candidates = stationsRes.stations
       .map((s) => {
-        const priceInfo = priceByPlaceId[s.placeId];
+        const priceInfo = s.livePrice != null
+          ? { price: s.livePrice, confidence: 'google', reportedAt: s.livePriceUpdatedAt }
+          : fallbackPriceByPlaceId[s.placeId];
         if (!priceInfo) return null;
         const detourMiles = s.detourMeters ? milesFromMeters(s.detourMeters) : 0.6;
         return { ...s, ...priceInfo, detourMiles };
       })
       .filter(Boolean)
-      .sort((a, b) => a.price - b.price);
+      // A guessed price (low confidence) must never outrank a real one just
+      // because the flat fallback number happens to be lower than today's
+      // actual prices — sort by trustworthiness first, price second.
+      .sort((a, b) => CONFIDENCE_RANK[a.confidence] - CONFIDENCE_RANK[b.confidence] || a.price - b.price);
 
     setLoading('');
 
@@ -277,7 +290,20 @@ function renderNoStationsFound(isCriticallyLow) {
   `;
 }
 
-function confidenceInfo(confidence) {
+function timeAgo(isoString) {
+  if (!isoString) return null;
+  const ms = Date.now() - new Date(isoString).getTime();
+  const hours = Math.round(ms / 3600000);
+  if (hours < 1) return 'under an hour ago';
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
+function confidenceInfo(confidence, reportedAt) {
+  if (confidence === 'google') {
+    const ago = timeAgo(reportedAt);
+    return { cls: 'confidence-google', label: `🟢 Live from Google${ago ? ` · ${ago}` : ''}` };
+  }
   if (confidence === 'high') return { cls: 'confidence-high', label: '✓ Price confirmed recently' };
   if (confidence === 'medium') return { cls: 'confidence-medium', label: '~ Price from a few days ago' };
   return { cls: 'confidence-low', label: '≈ Estimated — no recent driver reports' };
@@ -289,7 +315,7 @@ function renderResults(candidates, isCriticallyLow) {
   const area = document.getElementById('resultsArea');
 
   const cardsHtml = candidates.map((c, i) => {
-    const conf = confidenceInfo(c.confidence);
+    const conf = confidenceInfo(c.confidence, c.reportedAt);
     const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${c.lat},${c.lng}&query_place_id=${encodeURIComponent(c.placeId)}`;
     return `
       <div class="result-card" data-index="${i}">

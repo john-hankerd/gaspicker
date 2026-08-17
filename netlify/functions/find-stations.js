@@ -5,11 +5,31 @@
 // found near (used as its "time to stop") and a rough detour distance
 // (straight-line distance from the route to the station).
 //
+// Also requests Google's own `fuelOptions` field, which returns real,
+// regularly-updated per-station fuel prices directly from Google Maps (the
+// same data shown on gas station pins in the Maps app) — no scraping, no
+// crowd-sourcing needed for stations where Google has it. This bumps the
+// Nearby Search call to Google's "Enterprise + Atmosphere" pricing tier
+// (~$20-40/1,000 calls, 1,000 free/month) instead of the cheap Essentials
+// tier the rest of the fields use, but that's still effectively free at
+// this app's traffic. Stations without fuelOptions data fall back to
+// get-prices.js's crowd-sourced/estimated price, same as before.
+//
 // Env var: GOOGLE_MAPS_SERVER_KEY (same key as get-route.js, must also have
 // Places API (New) enabled).
 
 const SEARCH_RADIUS_METERS = 3219; // ~2 miles
 const MAX_SEARCH_POINTS = 8; // cap API calls on long reachable ranges
+
+function extractLivePrice(fuelOptions) {
+  const prices = fuelOptions?.fuelPrices;
+  if (!Array.isArray(prices)) return null;
+  const regular = prices.find((p) => p.type === 'REGULAR_UNLEADED');
+  if (!regular || !regular.price) return null;
+  const units = parseFloat(regular.price.units || '0');
+  const nanos = (regular.price.nanos || 0) / 1e9;
+  return { price: units + nanos, updatedAt: regular.updateTime || null };
+}
 
 function haversineMeters(lat1, lng1, lat2, lng2) {
   const R = 6371000;
@@ -63,7 +83,7 @@ exports.handler = async (event) => {
           headers: {
             'Content-Type': 'application/json',
             'X-Goog-Api-Key': apiKey,
-            'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.location',
+            'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.location,places.fuelOptions',
           },
           body: JSON.stringify({
             includedTypes: ['gas_station'],
@@ -89,6 +109,8 @@ exports.handler = async (event) => {
           const existing = stationsByPlaceId[placeId];
           if (existing && existing.distanceMeters <= point.distanceMeters) return;
 
+          const live = extractLivePrice(place.fuelOptions);
+
           stationsByPlaceId[placeId] = {
             placeId,
             name: place.displayName?.text || 'Gas station',
@@ -98,6 +120,8 @@ exports.handler = async (event) => {
             distanceMeters: point.distanceMeters,
             durationSeconds: point.durationSeconds,
             detourMeters,
+            livePrice: live?.price ?? null,
+            livePriceUpdatedAt: live?.updatedAt ?? null,
           };
         });
       })

@@ -322,6 +322,7 @@ button, input, textarea, select {
   border-radius: 999px;
   margin-bottom: 14px;
 }
+.confidence-google { background: #e5f3fb; color: #0c5f8a; }
 .confidence-high { background: var(--success-light); color: #1b6b46; }
 .confidence-medium { background: var(--warn-light); color: #8a5a00; }
 .confidence-low { background: var(--border); color: var(--ink-soft); }

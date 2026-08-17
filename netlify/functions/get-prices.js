@@ -18,7 +18,7 @@ if (!admin.apps.length) {
 }
 const db = admin.firestore();
 
-const FALLBACK_PRICE = parseFloat(process.env.FALLBACK_GAS_PRICE) || 3.25;
+const FALLBACK_PRICE = parseFloat(process.env.FALLBACK_GAS_PRICE) || 4.07; // ~AAA national average
 const HIGH_CONFIDENCE_MS = 3 * 24 * 60 * 60 * 1000;   // reported within 3 days
 const MEDIUM_CONFIDENCE_MS = 14 * 24 * 60 * 60 * 1000; // reported within 14 days
 
